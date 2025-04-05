@@ -1,29 +1,32 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import type { Stage, Project } from "./content-planner"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Search, Plus } from "lucide-react"
-import { format } from "date-fns"
-import { createProject } from "@/lib/actions"
-import { useToast } from "@/hooks/use-toast"
+import { useState } from "react";
+import type { Stage, Project } from "./content-planner";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Search, Plus } from "lucide-react";
+import { format } from "date-fns";
+import { createProject } from "@/lib/actions";
+import { useToast } from "@/hooks/use-toast";
 
 interface TableViewProps {
-  stages: Stage[]
-  onOpenProject: (project: Project) => void
+  stages: Stage[];
+  projects: Project[];
+  onOpenProject: (project: Project) => void;
 }
 
-export function TableView({ stages, onOpenProject }: TableViewProps) {
-  const [searchTerm, setSearchTerm] = useState("")
-  const [projects, setProjects] = useState<Project[]>([])
-  const [loading, setLoading] = useState(false)
-  const { toast } = useToast()
-
-  // This would normally fetch all projects, but for simplicity we'll assume they're passed in
-  // In a real implementation, you'd fetch all projects here
+export function TableView({ stages, projects, onOpenProject }: TableViewProps) {
+  const [searchTerm, setSearchTerm] = useState("");
+  const { toast } = useToast();
 
   const handleAddProject = async () => {
     if (stages.length === 0) {
@@ -31,13 +34,13 @@ export function TableView({ stages, onOpenProject }: TableViewProps) {
         title: "Error",
         description: "You need to create a stage first",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
     try {
-      const firstStage = stages[0]
-      const firstLayer = firstStage.layers[0]
+      const firstStage = stages[0];
+      const firstLayer = firstStage.layers[0];
 
       const newProject = await createProject({
         name: "New Project",
@@ -48,34 +51,32 @@ export function TableView({ stages, onOpenProject }: TableViewProps) {
         tags: [],
         createdAt: new Date(),
         updatedAt: new Date(),
-      })
-
-      setProjects([...projects, newProject])
+      });
 
       toast({
         title: "Success",
         description: "New project added",
-      })
+      });
 
       // Open the new project for editing
-      onOpenProject(newProject)
+      onOpenProject(newProject);
     } catch (error) {
       toast({
         title: "Error",
         description: "Failed to add new project",
         variant: "destructive",
-      })
-    } finally {
-      setLoading(false)
+      });
     }
-  }
+  };
 
   const filteredProjects = projects.filter(
     (project) =>
       project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      project.tags.some((tag) => tag.toLowerCase().includes(searchTerm.toLowerCase())),
-  )
+      project.tags.some((tag) =>
+        tag.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+  );
 
   return (
     <div className="space-y-4">
@@ -108,13 +109,7 @@ export function TableView({ stages, onOpenProject }: TableViewProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
-                  Loading projects...
-                </TableCell>
-              </TableRow>
-            ) : filteredProjects.length === 0 ? (
+            {filteredProjects.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8">
                   No projects found
@@ -122,8 +117,10 @@ export function TableView({ stages, onOpenProject }: TableViewProps) {
               </TableRow>
             ) : (
               filteredProjects.map((project) => {
-                const stage = stages.find((s) => s.id === project.stageId)
-                const layer = stage?.layers.find((l) => l.id === project.layerId)
+                const stage = stages.find((s) => s.id === project.stageId);
+                const layer = stage?.layers.find(
+                  (l) => l.id === project.layerId
+                );
 
                 return (
                   <TableRow
@@ -131,28 +128,39 @@ export function TableView({ stages, onOpenProject }: TableViewProps) {
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => onOpenProject(project)}
                   >
-                    <TableCell className="font-medium">{project.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {project.name}
+                    </TableCell>
                     <TableCell>{stage?.name || "Unknown"}</TableCell>
                     <TableCell>{layer?.name || "Unknown"}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {project.tags.map((tag, index) => (
-                          <Badge key={index} variant="outline" className="text-xs">
+                          <Badge
+                            key={index}
+                            variant="outline"
+                            className="text-xs"
+                          >
                             {tag}
                           </Badge>
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell>{project.dueDate ? format(new Date(project.dueDate), "MMM d, yyyy") : "-"}</TableCell>
-                    <TableCell>{format(new Date(project.updatedAt), "MMM d, yyyy")}</TableCell>
+                    <TableCell>
+                      {project.dueDate
+                        ? format(new Date(project.dueDate), "MMM d, yyyy")
+                        : "-"}
+                    </TableCell>
+                    <TableCell>
+                      {format(new Date(project.updatedAt), "MMM d, yyyy")}
+                    </TableCell>
                   </TableRow>
-                )
+                );
               })
             )}
           </TableBody>
         </Table>
       </div>
     </div>
-  )
+  );
 }
-

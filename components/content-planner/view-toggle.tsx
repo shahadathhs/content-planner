@@ -1,11 +1,11 @@
-"use client"
+"use client";
 
-import { LayoutGrid, Table2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { LayoutGrid, Table2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface ViewToggleProps {
-  view: "board" | "table"
-  onChange: (view: "board" | "table") => void
+  view: "board" | "table";
+  onChange: (view: "board" | "table") => void;
 }
 
 export function ViewToggle({ view, onChange }: ViewToggleProps) {
@@ -30,6 +30,5 @@ export function ViewToggle({ view, onChange }: ViewToggleProps) {
         Table
       </Button>
     </div>
-  )
+  );
 }
-

@@ -1,630 +1,479 @@
-"use server"
-
-import { revalidatePath } from "next/cache"
-import { connectToDatabase } from "./db"
 import {
-  ContentPlannerModel,
-  StageModel,
-  ProjectModel,
-  TaskBoardModel,
-  TaskColumnModel,
-  TaskModel,
-  TemplateModel,
-} from "./models"
+  generateId,
+  getContentPlanner,
+  updateContentPlanner,
+  getProjects,
+  getProjectsByLayer,
+  addProject,
+  updateProject as updateProjectInStorage,
+  deleteProject as deleteProjectFromStorage,
+  getTaskBoardByProjectId,
+  addTaskBoard,
+  updateTaskBoard,
+  getTasks,
+  addTask,
+  updateTaskItem,
+  deleteTaskItem,
+  addTemplate,
+  type TaskColumn,
+  type Task,
+  type Project,
+  type Stage,
+  type Layer,
+} from "./local-storage";
 
 // Content Planner Actions
 export async function fetchContentPlanner() {
-  try {
-    await connectToDatabase()
+  const contentPlanner = getContentPlanner();
 
-    // Find or create a content planner
-    let contentPlanner = await ContentPlannerModel.findOne().populate({
-      path: "stages",
-      populate: {
-        path: "layers",
-      },
-    })
-
-    if (!contentPlanner) {
-      // Create a default content planner with one stage
-      const defaultStage = new StageModel({
-        name: "Production",
-        order: 0,
-        layers: [
-          { name: "To Do", order: 0 },
-          { name: "In Progress", order: 1 },
-          { name: "Done", order: 2 },
-        ],
-      })
-
-      await defaultStage.save()
-
-      contentPlanner = new ContentPlannerModel({
-        stages: [defaultStage._id],
-      })
-
-      await contentPlanner.save()
-
-      // Fetch the newly created content planner with populated stages
-      contentPlanner = await ContentPlannerModel.findById(contentPlanner._id).populate({
-        path: "stages",
-        populate: {
-          path: "layers",
-        },
-      })
-    }
-
-    return {
-      id: contentPlanner._id.toString(),
-      stages: contentPlanner.stages.map((stage: { _id: { toString: () => string }, name: string, order: number, layers: Array<{ _id: { toString: () => string }, name: string, order: number }> }) => ({
-        id: stage._id.toString(),
-        name: stage.name,
-        order: stage.order,
-        layers: stage.layers.map((layer) => ({
-          id: layer._id.toString(),
-          name: layer.name,
-          order: layer.order,
-        })),
-      })),    }
-  } catch (error) {
-    console.error("Error fetching content planner:", error)
-    throw new Error("Failed to fetch content planner")
+  if (!contentPlanner) {
+    throw new Error("Content planner not found");
   }
+
+  return contentPlanner;
 }
 
 // Stage Actions
 export async function createStage(stageData: {
-  name: string
-  order: number
-  layers: { id: string; name: string; order: number }[]
+  name: string;
+  order: number;
+  layers: { id: string; name: string; order: number }[];
 }) {
-  try {
-    await connectToDatabase()
+  const contentPlanner = getContentPlanner();
 
-    // Create the stage
-    const stage = new StageModel({
-      name: stageData.name,
-      order: stageData.order,
-      layers: stageData.layers.map((layer) => ({
-        name: layer.name,
-        order: layer.order,
-      })),
-    })
-
-    await stage.save()
-
-    // Add the stage to the content planner
-    const contentPlanner = await ContentPlannerModel.findOne()
-    contentPlanner.stages.push(stage._id)
-    await contentPlanner.save()
-
-    // Return the created stage with its layers
-    return {
-      id: stage._id.toString(),
-      name: stage.name,
-      order: stage.order,
-      layers: stage.layers.map((layer) => ({
-        id: layer._id.toString(),
-        name: layer.name,
-        order: layer.order,
-      })),
-    }
-  } catch (error) {
-    console.error("Error creating stage:", error)
-    throw new Error("Failed to create stage")
+  if (!contentPlanner) {
+    throw new Error("Content planner not found");
   }
+
+  const newStage: Stage = {
+    id: generateId(),
+    name: stageData.name,
+    order: stageData.order,
+    layers: stageData.layers.map((layer) => ({
+      id: layer.id || generateId(),
+      name: layer.name,
+      order: layer.order,
+    })),
+  };
+
+  contentPlanner.stages.push(newStage);
+  updateContentPlanner(contentPlanner);
+
+  return newStage;
 }
 
-export async function updateStage(stageId: string, stageData: { name: string }) {
-  try {
-    await connectToDatabase()
+export async function updateStage(
+  stageId: string,
+  stageData: { name: string }
+) {
+  const contentPlanner = getContentPlanner();
 
-    const stage = await StageModel.findByIdAndUpdate(stageId, { name: stageData.name }, { new: true })
-
-    revalidatePath("/")
-
-    return {
-      id: stage._id.toString(),
-      name: stage.name,
-      order: stage.order,
-    }
-  } catch (error) {
-    console.error("Error updating stage:", error)
-    throw new Error("Failed to update stage")
+  if (!contentPlanner) {
+    throw new Error("Content planner not found");
   }
+
+  const stageIndex = contentPlanner.stages.findIndex(
+    (stage) => stage.id === stageId
+  );
+
+  if (stageIndex === -1) {
+    throw new Error("Stage not found");
+  }
+
+  contentPlanner.stages[stageIndex].name = stageData.name;
+  updateContentPlanner(contentPlanner);
+
+  return contentPlanner.stages[stageIndex];
 }
 
 export async function deleteStage(stageId: string) {
-  try {
-    await connectToDatabase()
+  const contentPlanner = getContentPlanner();
 
-    // Delete all projects in this stage
-    await ProjectModel.deleteMany({ stageId })
-
-    // Delete the stage
-    await StageModel.findByIdAndDelete(stageId)
-
-    // Remove the stage from the content planner
-    const contentPlanner = await ContentPlannerModel.findOne()
-    contentPlanner.stages = contentPlanner.stages.filter((id) => id.toString() !== stageId)
-    await contentPlanner.save()
-
-    revalidatePath("/")
-
-    return { success: true }
-  } catch (error) {
-    console.error("Error deleting stage:", error)
-    throw new Error("Failed to delete stage")
+  if (!contentPlanner) {
+    throw new Error("Content planner not found");
   }
+
+  // Delete all projects in this stage
+  const projects = getProjects();
+  const updatedProjects = projects.filter(
+    (project) => project.stageId !== stageId
+  );
+  localStorage.setItem("projects", JSON.stringify(updatedProjects));
+
+  // Remove the stage from the content planner
+  contentPlanner.stages = contentPlanner.stages.filter(
+    (stage) => stage.id !== stageId
+  );
+  updateContentPlanner(contentPlanner);
+
+  return { success: true };
 }
 
-export async function updateStageOrder(stages: { id: string; order: number }[]) {
-  try {
-    await connectToDatabase()
+export async function updateStageOrder(
+  stages: { id: string; order: number }[]
+) {
+  const contentPlanner = getContentPlanner();
 
-    // Update each stage's order
-    for (const stage of stages) {
-      await StageModel.findByIdAndUpdate(stage.id, { order: stage.order })
-    }
-
-    revalidatePath("/")
-
-    return { success: true }
-  } catch (error) {
-    console.error("Error updating stage order:", error)
-    throw new Error("Failed to update stage order")
+  if (!contentPlanner) {
+    throw new Error("Content planner not found");
   }
+
+  // Update each stage's order
+  contentPlanner.stages = contentPlanner.stages.map((stage) => {
+    const updatedStage = stages.find((s) => s.id === stage.id);
+    if (updatedStage) {
+      return { ...stage, order: updatedStage.order };
+    }
+    return stage;
+  });
+
+  updateContentPlanner(contentPlanner);
+
+  return { success: true };
 }
 
 // Layer Actions
-export async function createLayer(stageId: string, layerData: { name: string; order: number }) {
-  try {
-    await connectToDatabase()
+export async function createLayer(
+  stageId: string,
+  layerData: { name: string; order: number }
+) {
+  const contentPlanner = getContentPlanner();
 
-    const stage = await StageModel.findById(stageId)
-
-    const newLayer = {
-      name: layerData.name,
-      order: layerData.order,
-    }
-
-    stage.layers.push(newLayer)
-    await stage.save()
-
-    // Get the newly created layer
-    const createdLayer = stage.layers[stage.layers.length - 1]
-
-    revalidatePath("/")
-
-    return {
-      id: createdLayer._id.toString(),
-      name: createdLayer.name,
-      order: createdLayer.order,
-    }
-  } catch (error) {
-    console.error("Error creating layer:", error)
-    throw new Error("Failed to create layer")
+  if (!contentPlanner) {
+    throw new Error("Content planner not found");
   }
+
+  const stageIndex = contentPlanner.stages.findIndex(
+    (stage) => stage.id === stageId
+  );
+
+  if (stageIndex === -1) {
+    throw new Error("Stage not found");
+  }
+
+  const newLayer: Layer = {
+    id: generateId(),
+    name: layerData.name,
+    order: layerData.order,
+  };
+
+  contentPlanner.stages[stageIndex].layers.push(newLayer);
+  updateContentPlanner(contentPlanner);
+
+  return newLayer;
 }
 
-export async function updateLayer(stageId: string, layerId: string, layerData: { name: string }) {
-  try {
-    await connectToDatabase()
+export async function updateLayer(
+  stageId: string,
+  layerId: string,
+  layerData: { name: string }
+) {
+  const contentPlanner = getContentPlanner();
 
-    const stage = await StageModel.findById(stageId)
-    const layer = stage.layers.id(layerId)
-
-    layer.name = layerData.name
-    await stage.save()
-
-    revalidatePath("/")
-
-    return {
-      id: layer._id.toString(),
-      name: layer.name,
-      order: layer.order,
-    }
-  } catch (error) {
-    console.error("Error updating layer:", error)
-    throw new Error("Failed to update layer")
+  if (!contentPlanner) {
+    throw new Error("Content planner not found");
   }
+
+  const stageIndex = contentPlanner.stages.findIndex(
+    (stage) => stage.id === stageId
+  );
+
+  if (stageIndex === -1) {
+    throw new Error("Stage not found");
+  }
+
+  const layerIndex = contentPlanner.stages[stageIndex].layers.findIndex(
+    (layer) => layer.id === layerId
+  );
+
+  if (layerIndex === -1) {
+    throw new Error("Layer not found");
+  }
+
+  contentPlanner.stages[stageIndex].layers[layerIndex].name = layerData.name;
+  updateContentPlanner(contentPlanner);
+
+  return contentPlanner.stages[stageIndex].layers[layerIndex];
 }
 
 export async function deleteLayer(stageId: string, layerId: string) {
-  try {
-    await connectToDatabase()
+  const contentPlanner = getContentPlanner();
 
-    // Delete all projects in this layer
-    await ProjectModel.deleteMany({ stageId, layerId })
-
-    // Remove the layer from the stage
-    const stage = await StageModel.findById(stageId)
-    stage.layers.pull({ _id: layerId })
-    await stage.save()
-
-    revalidatePath("/")
-
-    return { success: true }
-  } catch (error) {
-    console.error("Error deleting layer:", error)
-    throw new Error("Failed to delete layer")
+  if (!contentPlanner) {
+    throw new Error("Content planner not found");
   }
+
+  const stageIndex = contentPlanner.stages.findIndex(
+    (stage) => stage.id === stageId
+  );
+
+  if (stageIndex === -1) {
+    throw new Error("Stage not found");
+  }
+
+  // Delete all projects in this layer
+  const projects = getProjects();
+  const updatedProjects = projects.filter(
+    (project) => !(project.stageId === stageId && project.layerId === layerId)
+  );
+  localStorage.setItem("projects", JSON.stringify(updatedProjects));
+
+  // Remove the layer from the stage
+  contentPlanner.stages[stageIndex].layers = contentPlanner.stages[
+    stageIndex
+  ].layers.filter((layer) => layer.id !== layerId);
+  updateContentPlanner(contentPlanner);
+
+  return { success: true };
 }
 
 // Project Actions
 export async function createProject(projectData: {
-  name: string
-  description: string
-  stageId: string
-  layerId: string
-  order: number
-  tags: string[]
-  dueDate?: Date
-  createdAt: Date
-  updatedAt: Date
+  name: string;
+  description: string;
+  stageId: string;
+  layerId: string;
+  order: number;
+  tags: string[];
+  dueDate?: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }) {
-  try {
-    await connectToDatabase()
+  const newProject: Project = {
+    id: generateId(),
+    name: projectData.name,
+    description: projectData.description,
+    stageId: projectData.stageId,
+    layerId: projectData.layerId,
+    order: projectData.order,
+    tags: projectData.tags,
+    dueDate: projectData.dueDate
+      ? projectData.dueDate.toISOString()
+      : undefined,
+    createdAt: projectData.createdAt.toISOString(),
+    updatedAt: projectData.updatedAt.toISOString(),
+  };
 
-    const project = new ProjectModel(projectData)
-    await project.save()
+  addProject(newProject);
 
-    revalidatePath("/")
-
-    return {
-      id: project._id.toString(),
-      name: project.name,
-      description: project.description,
-      stageId: project.stageId,
-      layerId: project.layerId,
-      order: project.order,
-      tags: project.tags,
-      dueDate: project.dueDate,
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-    }
-  } catch (error) {
-    console.error("Error creating project:", error)
-    throw new Error("Failed to create project")
-  }
+  return newProject;
 }
 
 export async function fetchProjectsByLayer(stageId: string, layerId: string) {
-  try {
-    await connectToDatabase()
-
-    const projects = await ProjectModel.find({ stageId, layerId })
-
-    return projects.map((project) => ({
-      id: project._id.toString(),
-      name: project.name,
-      description: project.description,
-      stageId: project.stageId,
-      layerId: project.layerId,
-      order: project.order,
-      tags: project.tags,
-      dueDate: project.dueDate,
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-    }))
-  } catch (error) {
-    console.error("Error fetching projects:", error)
-    throw new Error("Failed to fetch projects")
-  }
+  return getProjectsByLayer(stageId, layerId);
 }
 
 export async function updateProject(
   projectId: string,
   projectData: {
-    name?: string
-    description?: string
-    tags?: string[]
-    dueDate?: Date
-  },
-) {
-  try {
-    await connectToDatabase()
-
-    const project = await ProjectModel.findByIdAndUpdate(
-      projectId,
-      {
-        ...projectData,
-        updatedAt: new Date(),
-      },
-      { new: true },
-    )
-
-    revalidatePath("/")
-
-    return {
-      id: project._id.toString(),
-      name: project.name,
-      description: project.description,
-      stageId: project.stageId,
-      layerId: project.layerId,
-      order: project.order,
-      tags: project.tags,
-      dueDate: project.dueDate,
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-    }
-  } catch (error) {
-    console.error("Error updating project:", error)
-    throw new Error("Failed to update project")
+    name?: string;
+    description?: string;
+    tags?: string[];
+    dueDate?: Date;
   }
+) {
+  const updates: Partial<Project> = {
+    ...projectData,
+    dueDate: projectData.dueDate
+      ? projectData.dueDate.toISOString()
+      : undefined,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const updatedProject = updateProjectInStorage(projectId, updates);
+
+  if (!updatedProject) {
+    throw new Error("Project not found");
+  }
+
+  return updatedProject;
 }
 
 export async function deleteProject(projectId: string) {
-  try {
-    await connectToDatabase()
+  const success = deleteProjectFromStorage(projectId);
 
-    // Delete the project's task board and tasks
-    const taskBoard = await TaskBoardModel.findOne({ projectId })
-    if (taskBoard) {
-      await TaskModel.deleteMany({ taskBoardId: taskBoard._id })
-      await TaskBoardModel.findByIdAndDelete(taskBoard._id)
-    }
-
-    // Delete the project
-    await ProjectModel.findByIdAndDelete(projectId)
-
-    revalidatePath("/")
-
-    return { success: true }
-  } catch (error) {
-    console.error("Error deleting project:", error)
-    throw new Error("Failed to delete project")
+  if (!success) {
+    throw new Error("Failed to delete project");
   }
+
+  return { success: true };
 }
 
 export async function saveProjectAsTemplate(projectId: string) {
-  try {
-    await connectToDatabase()
+  const projects = getProjects();
+  const project = projects.find((p) => p.id === projectId);
 
-    const project = await ProjectModel.findById(projectId)
-
-    // Create a template from the project
-    const template = new TemplateModel({
-      name: `${project.name} Template`,
-      description: project.description,
-      tags: project.tags,
-      createdAt: new Date(),
-    })
-
-    await template.save()
-
-    // If the project has a task board, copy its structure to the template
-    const taskBoard = await TaskBoardModel.findOne({ projectId })
-    if (taskBoard) {
-      // Copy task columns and their tasks
-      // Implementation would go here
-    }
-
-    revalidatePath("/")
-
-    return { success: true }
-  } catch (error) {
-    console.error("Error saving project as template:", error)
-    throw new Error("Failed to save project as template")
+  if (!project) {
+    throw new Error("Project not found");
   }
+
+  const template = {
+    id: generateId(),
+    name: `${project.name} Template`,
+    description: project.description,
+    tags: project.tags,
+    createdAt: new Date().toISOString(),
+  };
+
+  addTemplate(template);
+
+  return { success: true };
 }
 
 // Task Board Actions
 export async function fetchTaskBoard(projectId: string) {
-  try {
-    await connectToDatabase()
+  let taskBoard = getTaskBoardByProjectId(projectId);
+  let tasks: Task[] = [];
 
-    let taskBoard = await TaskBoardModel.findOne({ projectId }).populate("columns")
-    let tasks = []
+  if (!taskBoard) {
+    // Create a default task board for this project
+    taskBoard = {
+      id: generateId(),
+      projectId,
+      columns: [],
+    };
 
-    if (!taskBoard) {
-      // Create a default task board for this project
-      taskBoard = new TaskBoardModel({
-        projectId,
-        columns: [],
-      })
-
-      await taskBoard.save()
-    } else {
-      // Fetch tasks for this task board
-      tasks = await TaskModel.find({ taskBoardId: taskBoard._id })
-    }
-
-    return {
-      taskBoard: {
-        id: taskBoard._id.toString(),
-        projectId: taskBoard.projectId,
-        columns: taskBoard.columns.map((column) => ({
-          id: column._id.toString(),
-          name: column.name,
-          order: column.order,
-        })),
-      },
-      tasks: tasks.map((task) => ({
-        id: task._id.toString(),
-        text: task.text,
-        columnId: task.columnId,
-        order: task.order,
-        completed: task.completed,
-      })),
-    }
-  } catch (error) {
-    console.error("Error fetching task board:", error)
-    throw new Error("Failed to fetch task board")
+    addTaskBoard(taskBoard);
+  } else {
+    // Fetch tasks for this task board
+    tasks = getTasks().filter((task) => task.columnId === taskBoard!.id);
   }
+
+  return {
+    taskBoard,
+    tasks,
+  };
 }
 
-export async function createTaskColumn(projectId: string, columnData: { name: string; order: number }) {
-  try {
-    await connectToDatabase()
+export async function createTaskColumn(
+  projectId: string,
+  columnData: { name: string; order: number }
+) {
+  let taskBoard = getTaskBoardByProjectId(projectId);
 
-    // Find or create the task board for this project
-    let taskBoard = await TaskBoardModel.findOne({ projectId })
+  if (!taskBoard) {
+    taskBoard = {
+      id: generateId(),
+      projectId,
+      columns: [],
+    };
 
-    if (!taskBoard) {
-      taskBoard = new TaskBoardModel({
-        projectId,
-        columns: [],
-      })
-
-      await taskBoard.save()
-    }
-
-    // Create the column
-    const column = new TaskColumnModel({
-      name: columnData.name,
-      order: columnData.order,
-    })
-
-    await column.save()
-
-    // Add the column to the task board
-    taskBoard.columns.push(column._id)
-    await taskBoard.save()
-
-    revalidatePath("/")
-
-    return {
-      id: column._id.toString(),
-      name: column.name,
-      order: column.order,
-      taskBoardId: taskBoard._id.toString(),
-    }
-  } catch (error) {
-    console.error("Error creating task column:", error)
-    throw new Error("Failed to create task column")
+    addTaskBoard(taskBoard);
   }
+
+  const newColumn: TaskColumn = {
+    id: generateId(),
+    name: columnData.name,
+    order: columnData.order,
+  };
+
+  taskBoard.columns.push(newColumn);
+  updateTaskBoard(taskBoard.id, { columns: taskBoard.columns });
+
+  return {
+    ...newColumn,
+    taskBoardId: taskBoard.id,
+  };
 }
 
-export async function updateTaskColumn(projectId: string, columnId: string, columnData: { name: string }) {
-  try {
-    await connectToDatabase()
+export async function updateTaskColumn(
+  projectId: string,
+  columnId: string,
+  columnData: { name: string }
+) {
+  const taskBoard = getTaskBoardByProjectId(projectId);
 
-    const column = await TaskColumnModel.findByIdAndUpdate(columnId, { name: columnData.name }, { new: true })
-
-    revalidatePath("/")
-
-    return {
-      id: column._id.toString(),
-      name: column.name,
-      order: column.order,
-    }
-  } catch (error) {
-    console.error("Error updating task column:", error)
-    throw new Error("Failed to update task column")
+  if (!taskBoard) {
+    throw new Error("Task board not found");
   }
+
+  const columnIndex = taskBoard.columns.findIndex(
+    (column) => column.id === columnId
+  );
+
+  if (columnIndex === -1) {
+    throw new Error("Column not found");
+  }
+
+  taskBoard.columns[columnIndex].name = columnData.name;
+  updateTaskBoard(taskBoard.id, { columns: taskBoard.columns });
+
+  return taskBoard.columns[columnIndex];
 }
 
 export async function deleteTaskColumn(projectId: string, columnId: string) {
-  try {
-    await connectToDatabase()
+  const taskBoard = getTaskBoardByProjectId(projectId);
 
-    // Delete all tasks in this column
-    await TaskModel.deleteMany({ columnId })
-
-    // Delete the column
-    await TaskColumnModel.findByIdAndDelete(columnId)
-
-    // Remove the column from the task board
-    const taskBoard = await TaskBoardModel.findOne({ projectId })
-    taskBoard.columns = taskBoard.columns.filter((id) => id.toString() !== columnId)
-    await taskBoard.save()
-
-    revalidatePath("/")
-
-    return { success: true }
-  } catch (error) {
-    console.error("Error deleting task column:", error)
-    throw new Error("Failed to delete task column")
+  if (!taskBoard) {
+    throw new Error("Task board not found");
   }
+
+  // Delete all tasks in this column
+  const tasks = getTasks();
+  const updatedTasks = tasks.filter((task) => task.columnId !== columnId);
+  localStorage.setItem("tasks", JSON.stringify(updatedTasks));
+
+  // Remove the column from the task board
+  taskBoard.columns = taskBoard.columns.filter(
+    (column) => column.id !== columnId
+  );
+  updateTaskBoard(taskBoard.id, { columns: taskBoard.columns });
+
+  return { success: true };
 }
 
 // Task Actions
 export async function createTask(
   projectId: string,
   taskData: {
-    text: string
-    columnId: string
-    order: number
-    completed: boolean
-  },
-) {
-  try {
-    await connectToDatabase()
-
-    // Find the task board for this project
-    const taskBoard = await TaskBoardModel.findOne({ projectId })
-
-    if (!taskBoard) {
-      throw new Error("Task board not found")
-    }
-
-    // Create the task
-    const task = new TaskModel({
-      text: taskData.text,
-      columnId: taskData.columnId,
-      order: taskData.order,
-      completed: taskData.completed,
-      taskBoardId: taskBoard._id,
-    })
-
-    await task.save()
-
-    revalidatePath("/")
-
-    return {
-      id: task._id.toString(),
-      text: task.text,
-      columnId: task.columnId,
-      order: task.order,
-      completed: task.completed,
-    }
-  } catch (error) {
-    console.error("Error creating task:", error)
-    throw new Error("Failed to create task")
+    text: string;
+    columnId: string;
+    order: number;
+    completed: boolean;
   }
+) {
+  const taskBoard = getTaskBoardByProjectId(projectId);
+
+  if (!taskBoard) {
+    throw new Error("Task board not found");
+  }
+
+  const newTask: Task = {
+    id: generateId(),
+    text: taskData.text,
+    columnId: taskData.columnId,
+    order: taskData.order,
+    completed: taskData.completed,
+  };
+
+  addTask(newTask);
+
+  return newTask;
 }
 
 export async function updateTask(
   projectId: string,
   taskId: string,
   taskData: {
-    text?: string
-    completed?: boolean
-  },
-) {
-  try {
-    await connectToDatabase()
-
-    const task = await TaskModel.findByIdAndUpdate(taskId, taskData, { new: true })
-
-    revalidatePath("/")
-
-    return {
-      id: task._id.toString(),
-      text: task.text,
-      columnId: task.columnId,
-      order: task.order,
-      completed: task.completed,
-    }
-  } catch (error) {
-    console.error("Error updating task:", error)
-    throw new Error("Failed to update task")
+    text?: string;
+    completed?: boolean;
   }
+) {
+  const updatedTask = updateTaskItem(taskId, taskData);
+
+  if (!updatedTask) {
+    throw new Error("Task not found");
+  }
+
+  return updatedTask;
 }
 
 export async function deleteTask(projectId: string, taskId: string) {
-  try {
-    await connectToDatabase()
+  const success = deleteTaskItem(taskId);
 
-    await TaskModel.findByIdAndDelete(taskId)
-
-    revalidatePath("/")
-
-    return { success: true }
-  } catch (error) {
-    console.error("Error deleting task:", error)
-    throw new Error("Failed to delete task")
+  if (!success) {
+    throw new Error("Failed to delete task");
   }
-}
 
+  return { success: true };
+}
