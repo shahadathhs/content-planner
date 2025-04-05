@@ -19,7 +19,7 @@ interface TableViewProps {
 export function TableView({ stages, onOpenProject }: TableViewProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [projects, setProjects] = useState<Project[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const { toast } = useToast()
 
   // This would normally fetch all projects, but for simplicity we'll assume they're passed in
@@ -65,6 +65,8 @@ export function TableView({ stages, onOpenProject }: TableViewProps) {
         description: "Failed to add new project",
         variant: "destructive",
       })
+    } finally {
+      setLoading(false)
     }
   }
 

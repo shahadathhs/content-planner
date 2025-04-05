@@ -56,7 +56,7 @@ export async function fetchContentPlanner() {
 
     return {
       id: contentPlanner._id.toString(),
-      stages: contentPlanner.stages.map((stage) => ({
+      stages: contentPlanner.stages.map((stage: { _id: { toString: () => string }, name: string, order: number, layers: Array<{ _id: { toString: () => string }, name: string, order: number }> }) => ({
         id: stage._id.toString(),
         name: stage.name,
         order: stage.order,
@@ -65,8 +65,7 @@ export async function fetchContentPlanner() {
           name: layer.name,
           order: layer.order,
         })),
-      })),
-    }
+      })),    }
   } catch (error) {
     console.error("Error fetching content planner:", error)
     throw new Error("Failed to fetch content planner")
